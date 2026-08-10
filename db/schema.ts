@@ -1,43 +1,47 @@
-import { sql } from "drizzle-orm";
 import {
+  boolean,
+  doublePrecision,
   integer,
-  real,
-  sqliteTable,
+  pgTable,
+  serial,
   text,
+  timestamp,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 
-export const profiles = sqliteTable("profiles", {
+export const profiles = pgTable("profiles", {
   userId: text("user_id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name").notNull(),
   city: text("city").notNull().default("上海"),
   householdSize: integer("household_size").notNull().default(1),
   billingDays: integer("billing_days").notNull().default(30),
-  electricityKwh: real("electricity_kwh").notNull().default(0),
-  gasM3: real("gas_m3").notNull().default(0),
-  waterM3: real("water_m3").notNull().default(0),
-  reminderEnabled: integer("reminder_enabled", { mode: "boolean" })
+  electricityKwh: doublePrecision("electricity_kwh").notNull().default(0),
+  gasM3: doublePrecision("gas_m3").notNull().default(0),
+  waterM3: doublePrecision("water_m3").notNull().default(0),
+  reminderEnabled: boolean("reminder_enabled").notNull().default(true),
+  onboarded: boolean("onboarded").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
-    .default(true),
-  onboarded: integer("onboarded", { mode: "boolean" })
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
-    .default(false),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    .defaultNow(),
 });
 
-export const submissions = sqliteTable(
+export const submissions = pgTable(
   "submissions",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
+    id: serial("id").primaryKey(),
     userId: text("user_id").notNull(),
     weekStart: text("week_start").notNull(),
     responsesJson: text("responses_json").notNull(),
     categoryTotalsJson: text("category_totals_json").notNull(),
     factorVersion: text("factor_version").notNull().default("SH-2026.1"),
-    totalKg: real("total_kg").notNull(),
-    submittedAt: text("submitted_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    totalKg: doublePrecision("total_kg").notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     uniqueIndex("idx_submissions_user_week").on(
@@ -47,14 +51,16 @@ export const submissions = sqliteTable(
   ],
 );
 
-export const emissionFactors = sqliteTable("emission_factors", {
+export const emissionFactors = pgTable("emission_factors", {
   code: text("code").primaryKey(),
   category: text("category").notNull(),
   label: text("label").notNull(),
-  value: real("value").notNull(),
+  value: doublePrecision("value").notNull(),
   unit: text("unit").notNull(),
   geography: text("geography").notNull(),
   source: text("source").notNull(),
   version: text("version").notNull(),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });

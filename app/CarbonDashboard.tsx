@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type CategoryKey =
@@ -273,12 +274,14 @@ export default function CarbonDashboard() {
   const [responses, setResponses] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [needsSignIn, setNeedsSignIn] = useState(false);
 
   async function loadData() {
     setError("");
     try {
       const response = await fetch("/api/state", { cache: "no-store" });
       const payload = (await response.json()) as AppData & { error?: string };
+      setNeedsSignIn(response.status === 401);
       if (!response.ok) throw new Error(payload.error || "数据加载失败");
       setData(payload);
     } catch (err) {
@@ -287,7 +290,8 @@ export default function CarbonDashboard() {
   }
 
   useEffect(() => {
-    void loadData();
+    const initialLoad = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, []);
 
   const latest = data?.submissions.at(-1);
@@ -365,7 +369,11 @@ export default function CarbonDashboard() {
       <main className="loading-screen">
         <div className="brand-mark">碳</div>
         <p>{error || "正在准备你的低碳空间…"}</p>
-        {error ? <button onClick={() => void loadData()}>重新加载</button> : null}
+        {needsSignIn ? (
+          <Link className="loading-action" href="/sign-in">使用企业邮箱登录</Link>
+        ) : error ? (
+          <button onClick={() => void loadData()}>重新加载</button>
+        ) : null}
       </main>
     );
   }

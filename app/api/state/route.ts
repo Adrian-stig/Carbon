@@ -1,9 +1,10 @@
 import { asc, eq, sql } from "drizzle-orm";
-import { getChatGPTUser } from "../../chatgpt-auth";
-import { ensureSchema, getDb } from "../../../db";
+import { getAppUser, isClerkConfigured } from "../../auth";
+import { getDb } from "../../../db";
 import { profiles, submissions } from "../../../db/schema";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const DEMO_USER = {
   userId: "demo-shanghai-user",
@@ -17,7 +18,7 @@ type CategoryTotals = Record<
 >;
 
 async function currentIdentity() {
-  const user = await getChatGPTUser();
+  const user = await getAppUser();
   if (user) {
     return {
       userId: user.userId,
@@ -94,11 +95,18 @@ async function seedDemo() {
 export async function GET() {
   const identity = await currentIdentity();
   if (!identity) {
-    return Response.json({ error: "请先登录" }, { status: 401 });
+    const authReady = isClerkConfigured();
+    return Response.json(
+      {
+        error: authReady
+          ? "请先登录"
+          : "登录服务尚未配置，请先在 Vercel Marketplace 连接 Clerk。",
+      },
+      { status: authReady ? 401 : 503 },
+    );
   }
 
   try {
-    await ensureSchema();
     if (identity.demo) await seedDemo();
     const db = getDb();
     const [profile] = await db
@@ -181,11 +189,18 @@ export async function GET() {
 export async function POST(request: Request) {
   const identity = await currentIdentity();
   if (!identity) {
-    return Response.json({ error: "请先登录" }, { status: 401 });
+    const authReady = isClerkConfigured();
+    return Response.json(
+      {
+        error: authReady
+          ? "请先登录"
+          : "登录服务尚未配置，请先在 Vercel Marketplace 连接 Clerk。",
+      },
+      { status: authReady ? 401 : 503 },
+    );
   }
 
   try {
-    await ensureSchema();
     const payload = (await request.json()) as {
       action?: "save-profile" | "save-submission";
       profile?: {

@@ -28,14 +28,14 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (the empty template is safe to commit)
 .env*
+!.env.example
 
 # vercel
 .vercel
 
-# typescript
-next-env.d.ts
+# generated output
 /dist/
 /.wrangler/
 /outputs/

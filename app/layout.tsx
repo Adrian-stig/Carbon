@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { isClerkConfigured } from "./auth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,8 +30,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title: "碳迹 · 上海",
     description: "每周记录衣食住行，让个人减碳变得清晰而具体。",
     icons: {
-      icon: "/favicon.png",
-      shortcut: "/favicon.png",
+      icon: "/favicon.svg",
+      shortcut: "/favicon.svg",
     },
     openGraph: {
       title: "碳迹 · 上海",
@@ -59,11 +61,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return (
+  const document = (
     <html lang="zh-CN">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         {children}
       </body>
     </html>
+  );
+
+  return isClerkConfigured() ? (
+    <ClerkProvider dynamic>{document}</ClerkProvider>
+  ) : (
+    document
   );
 }
