@@ -1,47 +1,29 @@
 # 碳迹 · 上海
 
-面向企业员工的每周个人碳足迹记录网站，支持衣、食、住、行、网购和垃圾六类活动记录、个人趋势、减排建议与匿名企业汇总。
+面向企业员工的每周个人碳足迹记录原型，支持衣、食、住、行、网购和垃圾六类活动记录、个人趋势与减排建议。
 
 ## 技术栈
 
 - Next.js 16 App Router
 - React 19
-- Neon Postgres + Drizzle ORM
-- 匿名设备 Cookie（暂不需要登录）
-- Vercel Functions，首选香港区域 `hkg1`
+- 浏览器 `localStorage` 本地保存
+- 暂不提供登录、数据库或真实邮件发送
+- Vercel 部署
 
-## 本地准备顺序
+## 本地启动
 
-本项目依赖 Vercel 托管的数据库。请先在 Vercel 中创建并连接项目，再运行数据库或开发命令。
-
-1. 从 GitHub 导入项目，Framework Preset 选择 `Next.js`。
-2. 在 Vercel Marketplace 安装 Neon，并连接到该项目。
-3. 拉取环境变量：
-
-```bash
-npx vercel link
-npx vercel env pull .env.local --yes
-```
-
-4. 确认 `.env.local` 中包含以下变量名：
-
-```text
-DATABASE_URL
-```
-
-5. 创建数据库表并启动：
+当前版本不需要任何环境变量，也不需要配置 `DATABASE_URL`。
 
 ```bash
 npm install
-npm run db:migrate
 npm run dev
 ```
 
-## 当前身份方式
+## 当前数据方式
 
-网站暂不提供邮箱登录。首次访问时，服务器会设置一个仅供本站使用的匿名设备 Cookie，并用它关联该浏览器的个人资料和历史记录。员工登记时填写的企业邮箱仅用于未来的周报提醒，不作为登录凭据。
+个人资料、家庭基线和每周打卡记录保存在当前浏览器的版本化 `localStorage` 中，不会上传到服务器。企业邮箱为可选字段，仅预留给未来的提醒功能，不作为登录凭据，当前也不会发送邮件。
 
-清除浏览器 Cookie 或改用其他浏览器、设备后，系统会将访问者视为新用户；正式开放跨设备访问前需要重新接入身份验证。
+清除网站数据或改用其他浏览器、设备后，本地记录无法恢复。企业统计页面会明确显示未启用，不展示模拟的团队数字。
 
 ## 常用命令
 
@@ -49,9 +31,6 @@ npm run dev
 npm run dev          # 本地开发
 npm run lint         # 静态检查
 npm run build        # 生产构建
-npm run db:generate  # 根据 schema 生成迁移
-npm run db:migrate   # 应用已生成的迁移
-npm run db:studio    # 打开 Drizzle Studio
 ```
 
 ## Vercel 项目设置
@@ -61,9 +40,7 @@ npm run db:studio    # 打开 Drizzle Studio
 - Build Command: `npm run build`
 - Output Directory: 留空
 - Node.js: `24.x`
-- Function Region: `hkg1`
-
-环境变量由 Vercel Marketplace 注入，不要把 `.env.local` 或任何密钥提交到 Git。
+- Environment Variables: 无需配置
 
 ## 部署前检查
 
@@ -72,4 +49,4 @@ npm run lint
 npm run build
 ```
 
-GitHub 的 `main` 分支用于生产部署，其他分支和 Pull Request 用于 Vercel Preview Deployment。
+GitHub 的 `main` 分支用于生产部署，其他分支和 Pull Request 用于 Vercel Preview Deployment。未来需要跨设备历史、企业汇总或邮件提醒时，再接入数据库和服务端身份体系。

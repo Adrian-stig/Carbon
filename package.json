@@ -10,15 +10,9 @@
     "build": "next build",
     "start": "next start",
     "test": "npm run lint && npm run build",
-    "lint": "eslint . --ignore-pattern .next --ignore-pattern dist --ignore-pattern .vinext",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
-    "db:push": "dotenv -e .env.local -- drizzle-kit push",
-    "db:studio": "dotenv -e .env.local -- drizzle-kit studio"
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern dist --ignore-pattern .vinext"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
-    "drizzle-orm": "0.45.2",
     "next": "^16.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -28,8 +22,6 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "dotenv-cli": "^11.0.0",
-    "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "^16.3.0",
     "tailwindcss": "4.2.1",

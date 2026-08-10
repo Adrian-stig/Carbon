@@ -40,13 +40,12 @@ type AppData = {
   profile: Profile | null;
   submissions: Submission[];
   currentWeek: string;
-  enterprise: {
-    teamSize: number;
-    submitted: number;
-    totalKg: number;
-    averageKg: number;
-    categories: CategoryTotals;
-  };
+};
+
+type LocalState = {
+  version: 1;
+  profile: Profile | null;
+  submissions: Submission[];
 };
 
 type View = "overview" | "history" | "enterprise";
@@ -59,6 +58,56 @@ const EMPTY_CATEGORIES: CategoryTotals = {
   shopping: 0,
   waste: 0,
 };
+
+const LOCAL_STORAGE_KEY = "carbon-tracker:local-state";
+const LOCAL_STATE_VERSION = 1;
+
+function currentWeekStart() {
+  const date = new Date();
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const dayOfMonth = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${dayOfMonth}`;
+}
+
+function readLocalState(): LocalState {
+  const fallback: LocalState = {
+    version: LOCAL_STATE_VERSION,
+    profile: null,
+    submissions: [],
+  };
+  const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (!raw) return fallback;
+
+  try {
+    const value = JSON.parse(raw) as Partial<LocalState>;
+    if (
+      value.version !== LOCAL_STATE_VERSION ||
+      (value.profile !== null && typeof value.profile !== "object") ||
+      !Array.isArray(value.submissions)
+    ) {
+      return fallback;
+    }
+    return {
+      version: LOCAL_STATE_VERSION,
+      profile: value.profile ?? null,
+      submissions: value.submissions,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalState(data: AppData) {
+  const localState: LocalState = {
+    version: LOCAL_STATE_VERSION,
+    profile: data.profile,
+    submissions: data.submissions,
+  };
+  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localState));
+}
 
 const CATEGORY_META: Record<
   CategoryKey,
@@ -274,20 +323,23 @@ export default function CarbonDashboard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadData() {
+  function loadData() {
     setError("");
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
-      const payload = (await response.json()) as AppData & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "数据加载失败");
-      setData(payload);
+      const localState = readLocalState();
+      setData({
+        identity: { displayName: "新用户", email: "" },
+        profile: localState.profile,
+        submissions: localState.submissions,
+        currentWeek: currentWeekStart(),
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "数据加载失败");
+      setError(err instanceof Error ? err.message : "浏览器本地数据加载失败");
     }
   }
 
   useEffect(() => {
-    const initialLoad = window.setTimeout(() => void loadData(), 0);
+    const initialLoad = window.setTimeout(loadData, 0);
     return () => window.clearTimeout(initialLoad);
   }, []);
 
@@ -311,27 +363,36 @@ export default function CarbonDashboard() {
     setCheckinOpen(true);
   }
 
-  async function submitCheckin() {
+  function submitCheckin() {
     if (!data) return;
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "save-submission",
-          submission: {
-            weekStart: data.currentWeek,
-            responses,
-            categories: draftCategories,
-            totalKg: round(totalOf(draftCategories), 2),
-          },
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "保存失败");
-      await loadData();
+      const existing = data.submissions.find(
+        (item) => item.weekStart === data.currentWeek,
+      );
+      const submission: Submission = {
+        id: existing?.id ?? Date.now(),
+        weekStart: data.currentWeek,
+        responses,
+        categories: draftCategories,
+        factorVersion: "SH-2026.1",
+        totalKg: round(totalOf(draftCategories), 2),
+        submittedAt: new Date().toISOString(),
+      };
+      const submissions = existing
+        ? data.submissions.map((item) =>
+            item.weekStart === data.currentWeek ? submission : item,
+          )
+        : [...data.submissions, submission];
+      const nextData = {
+        ...data,
+        submissions: submissions.toSorted((a, b) =>
+          a.weekStart.localeCompare(b.weekStart),
+        ),
+      };
+      writeLocalState(nextData);
+      setData(nextData);
       setCheckinOpen(false);
       setView("overview");
     } catch (err) {
@@ -341,18 +402,14 @@ export default function CarbonDashboard() {
     }
   }
 
-  async function saveProfile(profile: Profile) {
+  function saveProfile(profile: Profile) {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save-profile", profile }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "保存失败");
-      await loadData();
+      if (!data) return;
+      const nextData = { ...data, profile };
+      writeLocalState(nextData);
+      setData(nextData);
       setProfileOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -425,12 +482,14 @@ export default function CarbonDashboard() {
           />
         ) : null}
         {view === "history" ? <HistoryView submissions={data.submissions} /> : null}
-        {view === "enterprise" ? <EnterpriseView data={data} /> : null}
+        {view === "enterprise" ? (
+          <EnterpriseView currentWeek={data.currentWeek} />
+        ) : null}
       </main>
 
       <footer>
         <span>碳迹 · 上海员工低碳行动</span>
-        <span>因子版本 SH-2026.1 · 结果用于行为参考</span>
+        <span>数据保存在本浏览器 · 因子版本 SH-2026.1</span>
       </footer>
 
       {checkinOpen ? (
@@ -483,7 +542,6 @@ function Overview({
   onHistory: () => void;
 }) {
   const maxTrend = Math.max(...data.submissions.map((item) => item.totalKg), 1);
-  const completion = Math.round((data.enterprise.submitted / data.enterprise.teamSize) * 100);
   return (
     <>
       <section className="welcome-row">
@@ -517,10 +575,10 @@ function Overview({
           <div className="week-dots" aria-label="最近七周记录"><i/><i/><i/><i/><i/><i/><i className="today"/></div>
         </article>
         <article className="metric-card company-pulse">
-          <span className="metric-label">企业本周参与</span>
-          <div className="metric-value small"><strong>{completion}</strong><span>%</span></div>
-          <div className="mini-progress"><span style={{ width: `${completion}%` }} /></div>
-          <small>{data.enterprise.submitted} / {data.enterprise.teamSize} 人已提交</small>
+          <span className="metric-label">当前保存方式</span>
+          <div className="metric-value local-mode"><strong>本地</strong><span>浏览器</span></div>
+          <div className="mini-progress"><span style={{ width: "100%" }} /></div>
+          <small>企业汇总将在启用数据库后提供</small>
         </article>
       </section>
 
@@ -566,8 +624,8 @@ function Overview({
 
       <section className="reminder-strip">
         <div className="reminder-icon">信</div>
-        <div><strong>每周提醒已开启</strong><p>周一 09:00 发送打卡邮件，未提交时周四再提醒一次。</p></div>
-        <span>{data.profile?.email}</span>
+        <div><strong>邮件提醒暂未启用</strong><p>当前邮箱只保存在本浏览器；接入邮件服务后再启用每周提醒。</p></div>
+        <span>{data.profile?.email || "未填写邮箱"}</span>
       </section>
     </>
   );
@@ -599,35 +657,19 @@ function HistoryView({ submissions }: { submissions: Submission[] }) {
   );
 }
 
-function EnterpriseView({ data }: { data: AppData }) {
-  const enterprise = data.enterprise;
-  const completion = Math.round((enterprise.submitted / enterprise.teamSize) * 100);
-  const total = Math.max(totalOf(enterprise.categories), 0.001);
+function EnterpriseView({ currentWeek }: { currentWeek: string }) {
   return (
     <section className="page-section">
-      <div className="page-title"><div><p className="eyebrow">匿名汇总 · 上海</p><h1>企业低碳周报</h1><p>仅展示团队汇总，不含员工排名和个人明细。</p></div><span className="week-tag">{formatWeek(data.currentWeek)}</span></div>
-      <div className="enterprise-hero">
-        <article><span>本周填报率</span><strong>{completion}%</strong><div className="wide-progress"><i style={{ width: `${completion}%` }} /></div><small>{enterprise.submitted} / {enterprise.teamSize} 名员工</small></article>
-        <article><span>已统计排放</span><strong>{round(enterprise.totalKg / 1000, 2)} t</strong><small>CO₂e · 已提交员工合计</small></article>
-        <article><span>员工周均</span><strong>{round(enterprise.averageKg)} kg</strong><small>CO₂e / 人</small></article>
+      <div className="page-title"><div><p className="eyebrow">企业汇总 · 稍后启用</p><h1>当前仅保存个人记录</h1><p>尚未配置数据库，因此系统不会上传、合并或展示员工数据。</p></div><span className="week-tag">{formatWeek(currentWeek)}</span></div>
+      <div className="enterprise-unavailable panel">
+        <span className="enterprise-unavailable-icon">企</span>
+        <div>
+          <p className="eyebrow">本地原型模式</p>
+          <h2>企业统计将在接入数据库后提供</h2>
+          <p>届时可生成填报率、总排放、人均值、六类占比和变化趋势；当前不会显示占位数字或模拟员工数据。</p>
+        </div>
       </div>
-      <div className="enterprise-grid">
-        <article className="panel">
-          <div className="panel-heading"><div><span className="eyebrow">类别分布</span><h2>团队排放结构</h2></div></div>
-          <div className="stacked-bar">
-            {(Object.keys(enterprise.categories) as CategoryKey[]).map((key) => <span key={key} style={{ width: `${(enterprise.categories[key] / total) * 100}%`, background: CATEGORY_META[key].color }} />)}
-          </div>
-          <div className="enterprise-category-list">
-            {(Object.keys(enterprise.categories) as CategoryKey[]).map((key) => <div key={key}><span className="legend-dot" style={{ background: CATEGORY_META[key].color }} /><span>{CATEGORY_META[key].label}</span><strong>{round((enterprise.categories[key] / total) * 100)}%</strong></div>)}
-          </div>
-        </article>
-        <article className="panel report-panel">
-          <span className="eyebrow">自动周报</span><h2>企业邮箱已配置</h2><p>每周汇总将在截止后生成，包含填报率、总排放、人均值、六类占比和变化趋势。</p>
-          <div className="report-recipient"><span>收</span><div><small>发送至</small><strong>weekly-report@company.cn</strong></div></div>
-          <button onClick={() => window.print()}>预览周报内容 <span>→</span></button>
-        </article>
-      </div>
-      <div className="privacy-note"><strong>汇总原则</strong><p>企业数据只在达到最小汇总人数后展示；当前版本不提供员工排名、个人明细或跨员工比较。</p></div>
+      <div className="privacy-note"><strong>当前数据范围</strong><p>姓名、邮箱、家庭基线和每周打卡均只存于当前浏览器；清除网站数据或更换设备后无法恢复。</p></div>
     </section>
   );
 }
@@ -701,10 +743,10 @@ function ProfileModal({ profile, saving, error, onClose, onSave }: { profile: Pr
         <button className="close-button" onClick={onClose} aria-label="关闭">×</button><p className="eyebrow">家庭基线</p><h2 id="profile-title">更新居住信息</h2><p>填写最近一期账单中的实际用量，系统将自动折算成个人每周用量。</p>
         <form onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
           <div className="two-fields"><label><span>姓名</span><input value={form.displayName} onChange={(e) => update("displayName", e.target.value)} /></label><label><span>常住城市</span><input value={form.city} onChange={(e) => update("city", e.target.value)} /></label></div>
-          <label><span>企业邮箱</span><input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></label>
+          <label><span>企业邮箱（可选）</span><input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></label>
           <div className="two-fields"><label><span>家庭人数</span><input type="number" min="1" value={form.householdSize} onChange={(e) => update("householdSize", Number(e.target.value))} /></label><label><span>账单覆盖天数</span><input type="number" min="1" value={form.billingDays} onChange={(e) => update("billingDays", Number(e.target.value))} /></label></div>
           <div className="three-fields"><label><span>用电 kWh</span><input type="number" min="0" step="0.1" value={form.electricityKwh} onChange={(e) => update("electricityKwh", Number(e.target.value))} /></label><label><span>天然气 m³</span><input type="number" min="0" step="0.1" value={form.gasM3} onChange={(e) => update("gasM3", Number(e.target.value))} /></label><label><span>自来水 m³</span><input type="number" min="0" step="0.1" value={form.waterM3} onChange={(e) => update("waterM3", Number(e.target.value))} /></label></div>
-          <label className="toggle-row"><input type="checkbox" checked={form.reminderEnabled} onChange={(e) => update("reminderEnabled", e.target.checked)} /><span><strong>开启每周邮件提醒</strong><small>周一发送，未提交时周四再次提醒</small></span></label>
+          <label className="toggle-row"><input type="checkbox" checked={form.reminderEnabled} onChange={(e) => update("reminderEnabled", e.target.checked)} /><span><strong>保存每周提醒偏好</strong><small>接入邮件服务后生效，当前不会发送邮件</small></span></label>
           {error ? <p className="form-error">{error}</p> : null}<button className="primary full" type="submit" disabled={saving}>{saving ? "正在保存…" : "保存家庭基线"}</button>
         </form>
       </section>
@@ -726,12 +768,12 @@ function FactorModal({ onClose }: { onClose: () => void }) {
 }
 
 function Onboarding({ identity, saving, error, onSave }: { identity: AppData["identity"]; saving: boolean; error: string; onSave: (profile: Profile) => void }) {
-  const [form, setForm] = useState<Profile>({ email: identity.email, displayName: identity.displayName, city: "上海", householdSize: 1, billingDays: 30, electricityKwh: 0, gasM3: 0, waterM3: 0, reminderEnabled: true, onboarded: true });
+  const [form, setForm] = useState<Profile>({ email: identity.email, displayName: identity.displayName, city: "上海", householdSize: 1, billingDays: 30, electricityKwh: 0, gasM3: 0, waterM3: 0, reminderEnabled: false, onboarded: true });
   function update<K extends keyof Profile>(key: K, value: Profile[K]) { setForm((current) => ({ ...current, [key]: value })); }
   return (
     <main className="onboarding-page">
-      <section className="onboarding-intro"><div className="brand light"><span className="brand-mark">碳</span><span>碳迹</span></div><div><p className="eyebrow">WELCOME · SHANGHAI</p><h1>从一张家庭账单，开始看见自己的碳足迹。</h1><p>这一步只需完成一次。之后每周的居住能耗会自动按家庭人数和账单周期分摊。</p></div><div className="onboarding-promise"><span>01</span><p>不做员工排名</p><span>02</span><p>历史因子可追溯</p><span>03</span><p>企业只看匿名汇总</p></div></section>
-      <section className="onboarding-form"><p className="eyebrow">首次登记 · 约2分钟</p><h2>你的家庭基线</h2><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSave(form); }}><div className="two-fields"><label><span>姓名</span><input required value={form.displayName} onChange={(e) => update("displayName", e.target.value)} /></label><label><span>常住城市</span><input required value={form.city} onChange={(e) => update("city", e.target.value)} /></label></div><label><span>企业邮箱</span><input required type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></label><div className="two-fields"><label><span>家庭常住人数</span><input required type="number" min="1" value={form.householdSize} onChange={(e) => update("householdSize", Number(e.target.value))} /></label><label><span>账单覆盖天数</span><input required type="number" min="1" value={form.billingDays} onChange={(e) => update("billingDays", Number(e.target.value))} /></label></div><p className="form-group-title">最近一期家庭账单用量</p><div className="three-fields"><label><span>用电 kWh</span><input required type="number" min="0" step="0.1" value={form.electricityKwh || ""} onChange={(e) => update("electricityKwh", Number(e.target.value))} /></label><label><span>天然气 m³</span><input type="number" min="0" step="0.1" value={form.gasM3 || ""} onChange={(e) => update("gasM3", Number(e.target.value))} /></label><label><span>自来水 m³</span><input type="number" min="0" step="0.1" value={form.waterM3 || ""} onChange={(e) => update("waterM3", Number(e.target.value))} /></label></div>{error ? <p className="form-error">{error}</p> : null}<button className="primary full" type="submit" disabled={saving}>{saving ? "正在建立基线…" : "完成登记，进入碳迹"}<span>→</span></button></form></section>
+      <section className="onboarding-intro"><div className="brand light"><span className="brand-mark">碳</span><span>碳迹</span></div><div><p className="eyebrow">WELCOME · SHANGHAI</p><h1>从一张家庭账单，开始看见自己的碳足迹。</h1><p>这一步只需完成一次。之后每周的居住能耗会自动按家庭人数和账单周期分摊。</p></div><div className="onboarding-promise"><span>01</span><p>不做员工排名</p><span>02</span><p>历史因子可追溯</p><span>03</span><p>数据只留在本机</p></div></section>
+      <section className="onboarding-form"><p className="eyebrow">首次登记 · 约2分钟</p><h2>你的家庭基线</h2><form onSubmit={(event: FormEvent) => { event.preventDefault(); onSave(form); }}><div className="two-fields"><label><span>姓名</span><input required value={form.displayName} onChange={(e) => update("displayName", e.target.value)} /></label><label><span>常住城市</span><input required value={form.city} onChange={(e) => update("city", e.target.value)} /></label></div><label><span>企业邮箱（可选）</span><input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></label><div className="two-fields"><label><span>家庭常住人数</span><input required type="number" min="1" value={form.householdSize} onChange={(e) => update("householdSize", Number(e.target.value))} /></label><label><span>账单覆盖天数</span><input required type="number" min="1" value={form.billingDays} onChange={(e) => update("billingDays", Number(e.target.value))} /></label></div><p className="form-group-title">最近一期家庭账单用量</p><div className="three-fields"><label><span>用电 kWh</span><input required type="number" min="0" step="0.1" value={form.electricityKwh || ""} onChange={(e) => update("electricityKwh", Number(e.target.value))} /></label><label><span>天然气 m³</span><input type="number" min="0" step="0.1" value={form.gasM3 || ""} onChange={(e) => update("gasM3", Number(e.target.value))} /></label><label><span>自来水 m³</span><input type="number" min="0" step="0.1" value={form.waterM3 || ""} onChange={(e) => update("waterM3", Number(e.target.value))} /></label></div>{error ? <p className="form-error">{error}</p> : null}<button className="primary full" type="submit" disabled={saving}>{saving ? "正在建立基线…" : "完成登记，进入碳迹"}<span>→</span></button></form></section>
     </main>
   );
 }
