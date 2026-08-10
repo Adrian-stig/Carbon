@@ -1,37 +1,15 @@
 import { asc, eq, sql } from "drizzle-orm";
-import { getAppUser, isClerkConfigured } from "../../auth";
+import { getAnonymousIdentity } from "../../anonymous-identity";
 import { getDb } from "../../../db";
 import { profiles, submissions } from "../../../db/schema";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const DEMO_USER = {
-  userId: "demo-shanghai-user",
-  email: "lin.xia@example.cn",
-  displayName: "林晓",
-};
-
 type CategoryTotals = Record<
   "clothing" | "food" | "home" | "travel" | "shopping" | "waste",
   number
 >;
-
-async function currentIdentity() {
-  const user = await getAppUser();
-  if (user) {
-    return {
-      userId: user.userId,
-      email: user.email,
-      displayName: user.fullName ?? user.email.split("@")[0],
-      demo: false,
-    };
-  }
-  if (process.env.NODE_ENV !== "production") {
-    return { ...DEMO_USER, demo: true };
-  }
-  return null;
-}
 
 function weekStart(offset = 0) {
   const date = new Date();
@@ -48,66 +26,10 @@ function parseJson<T>(value: string, fallback: T): T {
   }
 }
 
-async function seedDemo() {
-  const db = getDb();
-  const [existing] = await db
-    .select()
-    .from(profiles)
-    .where(eq(profiles.userId, DEMO_USER.userId))
-    .limit(1);
-  if (existing) return;
-
-  await db.insert(profiles).values({
-    ...DEMO_USER,
-    city: "上海",
-    householdSize: 2,
-    billingDays: 30,
-    electricityKwh: 186,
-    gasM3: 22,
-    waterM3: 12,
-    reminderEnabled: true,
-    onboarded: true,
-  });
-
-  const samples: CategoryTotals[] = [
-    { clothing: 4.2, food: 18.4, home: 9.8, travel: 12.3, shopping: 2.8, waste: 1.9 },
-    { clothing: 0, food: 17.6, home: 9.8, travel: 10.8, shopping: 4.1, waste: 1.7 },
-    { clothing: 8.9, food: 16.2, home: 9.8, travel: 9.4, shopping: 2.2, waste: 1.6 },
-    { clothing: 0, food: 15.8, home: 9.8, travel: 11.2, shopping: 3.6, waste: 1.4 },
-    { clothing: 0, food: 14.9, home: 9.8, travel: 8.7, shopping: 1.8, waste: 1.4 },
-    { clothing: 4.1, food: 14.2, home: 9.8, travel: 7.5, shopping: 2.0, waste: 1.2 },
-    { clothing: 0, food: 13.8, home: 9.8, travel: 7.1, shopping: 2.6, waste: 1.1 },
-    { clothing: 0, food: 13.1, home: 9.8, travel: 6.9, shopping: 1.9, waste: 1.0 },
-  ];
-
-  await db.insert(submissions).values(
-    samples.map((totals, index) => ({
-      userId: DEMO_USER.userId,
-      weekStart: weekStart(index - samples.length + 1),
-      responsesJson: JSON.stringify({ demo: true }),
-      categoryTotalsJson: JSON.stringify(totals),
-      factorVersion: "SH-2026.1",
-      totalKg: Object.values(totals).reduce((sum, value) => sum + value, 0),
-    })),
-  );
-}
-
 export async function GET() {
-  const identity = await currentIdentity();
-  if (!identity) {
-    const authReady = isClerkConfigured();
-    return Response.json(
-      {
-        error: authReady
-          ? "请先登录"
-          : "登录服务尚未配置，请先在 Vercel Marketplace 连接 Clerk。",
-      },
-      { status: authReady ? 401 : 503 },
-    );
-  }
+  const identity = await getAnonymousIdentity();
 
   try {
-    if (identity.demo) await seedDemo();
     const db = getDb();
     const [profile] = await db
       .select()
@@ -146,28 +68,13 @@ export async function GET() {
       }
     }
 
-    const enterprise = identity.demo
-      ? {
-          teamSize: 200,
-          submitted: 164,
-          totalKg: 6213.4,
-          averageKg: 37.9,
-          categories: {
-            clothing: 548.2,
-            food: 2316.7,
-            home: 1364.5,
-            travel: 1276.8,
-            shopping: 421.3,
-            waste: 285.9,
-          } satisfies CategoryTotals,
-        }
-      : {
-          teamSize: 200,
-          submitted: allThisWeek.length,
-          totalKg: enterpriseTotal,
-          averageKg: allThisWeek.length ? enterpriseTotal / allThisWeek.length : 0,
-          categories: categorySum,
-        };
+    const enterprise = {
+      teamSize: 200,
+      submitted: allThisWeek.length,
+      totalKg: enterpriseTotal,
+      averageKg: allThisWeek.length ? enterpriseTotal / allThisWeek.length : 0,
+      categories: categorySum,
+    };
 
     return Response.json({
       identity,
@@ -187,18 +94,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const identity = await currentIdentity();
-  if (!identity) {
-    const authReady = isClerkConfigured();
-    return Response.json(
-      {
-        error: authReady
-          ? "请先登录"
-          : "登录服务尚未配置，请先在 Vercel Marketplace 连接 Clerk。",
-      },
-      { status: authReady ? 401 : 503 },
-    );
-  }
+  const identity = await getAnonymousIdentity();
 
   try {
     const payload = (await request.json()) as {

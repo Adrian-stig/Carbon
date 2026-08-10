@@ -7,38 +7,41 @@
 - Next.js 16 App Router
 - React 19
 - Neon Postgres + Drizzle ORM
-- Clerk 企业邮箱登录
+- 匿名设备 Cookie（暂不需要登录）
 - Vercel Functions，首选香港区域 `hkg1`
 
 ## 本地准备顺序
 
-本项目依赖 Vercel 托管的数据库和登录服务。请先在 Vercel 中创建并连接项目，再运行数据库或开发命令。
+本项目依赖 Vercel 托管的数据库。请先在 Vercel 中创建并连接项目，再运行数据库或开发命令。
 
 1. 从 GitHub 导入项目，Framework Preset 选择 `Next.js`。
 2. 在 Vercel Marketplace 安装 Neon，并连接到该项目。
-3. 在 Vercel Marketplace 安装 Clerk，并连接到该项目。
-4. 拉取环境变量：
+3. 拉取环境变量：
 
 ```bash
 npx vercel link
 npx vercel env pull .env.local --yes
 ```
 
-5. 确认 `.env.local` 中包含以下变量名：
+4. 确认 `.env.local` 中包含以下变量名：
 
 ```text
 DATABASE_URL
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-CLERK_SECRET_KEY
 ```
 
-6. 创建数据库表并启动：
+5. 创建数据库表并启动：
 
 ```bash
 npm install
 npm run db:migrate
 npm run dev
 ```
+
+## 当前身份方式
+
+网站暂不提供邮箱登录。首次访问时，服务器会设置一个仅供本站使用的匿名设备 Cookie，并用它关联该浏览器的个人资料和历史记录。员工登记时填写的企业邮箱仅用于未来的周报提醒，不作为登录凭据。
+
+清除浏览器 Cookie 或改用其他浏览器、设备后，系统会将访问者视为新用户；正式开放跨设备访问前需要重新接入身份验证。
 
 ## 常用命令
 
